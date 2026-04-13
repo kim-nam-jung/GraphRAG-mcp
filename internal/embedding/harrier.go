@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
@@ -15,8 +16,18 @@ type HarrierModel struct {
 
 func NewHarrierModel(modelPath string) (*HarrierModel, error) {
 	if !ort.IsInitialized() {
-		// Expects the library to be present at execution time (e.g., onnxruntime.dll)
-		ort.SetSharedLibraryPath("/usr/lib/libonnxruntime.so")
+		// Dynamically assign ONNX runtime library based on OS
+		var sharedLibPath string
+		switch runtime.GOOS {
+		case "windows":
+			sharedLibPath = "onnxruntime.dll"
+		case "darwin":
+			sharedLibPath = "libonnxruntime.dylib"
+		default:
+			sharedLibPath = "/usr/lib/libonnxruntime.so"
+		}
+		
+		ort.SetSharedLibraryPath(sharedLibPath)
 		ort.InitializeEnvironment()
 	}
 
