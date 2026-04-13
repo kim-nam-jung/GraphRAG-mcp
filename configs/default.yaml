@@ -1,0 +1,30 @@
+server:
+  transport: "stdio"
+
+indexer:
+  tier1: ["go", "python", "typescript", "javascript", "csharp", "java", "rust", "c", "cpp"]
+  tier2: ["ruby", "php", "swift", "kotlin", "scala", "lua", "dart"]
+  tier3: ["bash", "sql", "html", "css", "yaml", "json", "toml", "dockerfile", "hcl", "protobuf", "markdown"]
+  exclude_dirs: ["vendor", "node_modules", ".git", "dist", "build", "__pycache__", "bin", "obj"]
+  exclude_files: ["*_test.go", "*.test.*", "*.spec.*", "*.min.js", "*.min.css"]
+  chunk_max_lines: 50
+
+embedding:
+  model_path: "./models/harrier/model.onnx"
+  tokenizer_path: "./models/harrier/tokenizer.json"
+  quantization: "q4"
+  dimension: 640
+  max_tokens: 512
+  query_instruction: "Instruct: Given a code search query, retrieve relevant code snippets\nQuery: "
+
+storage:
+  db_path: "./data/graph.db"
+  wal_mode: true
+
+graph:
+  leiden_resolution: 1.0
+  min_community_size: 3
+
+search:
+  auto_reindex: true
+  reindex_cooldown_sec: 10
