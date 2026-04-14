@@ -8,8 +8,8 @@ fn main() -> anyhow::Result<()> {
 
     let search_engine = SearchEngine::new(&db, &harrier, &tokenizer, &cfg);
     
-    // Top-2 chunks, 1-hop depth
-    let result = search_engine.local_search("Entity", 2, 1)?;
+    // Top-3 chunks, 1-hop depth
+    let result = search_engine.local_search("leiden algorithm community detection", 3, 1)?;
     println!("{}", result);
     
     Ok(())

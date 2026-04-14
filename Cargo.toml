@@ -40,11 +40,15 @@ petgraph = "0.6"
 anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# Network & Downloading
+reqwest = { version = "0.12", features = ["stream", "rustls-tls"], default-features = false }
+futures-util = "0.3"
+directories = "5.0"
 
 tree-sitter-c-sharp = "0.21"
 tree-sitter-ruby = "0.21"
 sqlite-vec = "0.1.1"
-ort = "2.0.0-rc.12"
+ort = { version = "2.0.0-rc.12", features = ["download-binaries"] }
 leiden-rs = "0.6.0"
 gryf = "0.2.1"
 tree-sitter-scala = "0.21.0"

@@ -412,20 +412,29 @@ impl Database {
         })?;
 
         // Search entities FTS
+        // Strip punctuation and special characters from FTS query
+        let safe_query = query.chars()
+            .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+            .collect::<String>();
+            
+        // Provide wildcard matching for better partial keyword hits
+        let wildcard_query = safe_query.split_whitespace()
+            .map(|token| format!("{}*", token))
+            .collect::<Vec<_>>()
+            .join(" ");
+
         let mut stmt2 = self.conn.prepare(
-            "SELECT e.name, e.type, e.file_path, e.qualified_name
-             FROM fts_entities fe
-             JOIN entities e ON fe.rowid = e.id
-             WHERE fts_entities MATCH ?1
-             ORDER BY rank
-             LIMIT ?2",
+            "SELECT e.id, IFNULL(e.file_path, ''), e.name, e.type, IFNULL(e.qualified_name, '') 
+             FROM fts_entities f 
+             JOIN entities e ON f.rowid = e.id 
+             WHERE fts_entities MATCH ? ORDER BY rank LIMIT ?"
         )?;
-        let entity_results = stmt2.query_map(params![query, top_k], |row| {
+        let entity_results = stmt2.query_map(params![wildcard_query, top_k], |row| {
             Ok(KeywordResult {
-                name: row.get(0)?,
-                entity_type: row.get(1)?,
-                file_path: row.get(2)?,
-                snippet: row.get(3)?,
+                name: row.get(2)?,
+                entity_type: row.get(3)?,
+                file_path: row.get(1)?,
+                snippet: row.get(4)?,
             })
         })?;
 
