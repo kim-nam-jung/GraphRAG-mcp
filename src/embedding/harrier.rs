@@ -73,7 +73,9 @@ impl HarrierModel {
 
         let shape = vec![1, seq_len];
         let input_ids_val = Value::from_array((shape.clone(), input_ids)).unwrap();
-        let attention_mask_val = Value::from_array((shape, attention_mask)).unwrap();
+        let attention_mask_val = Value::from_array((shape.clone(), attention_mask)).unwrap();
+        let token_type_ids: Vec<i64> = vec![0; seq_len];
+        let token_type_ids_val = Value::from_array((shape, token_type_ids)).unwrap();
 
         let mut inputs_map = std::collections::HashMap::new();
         inputs_map.insert(
@@ -83,6 +85,10 @@ impl HarrierModel {
         inputs_map.insert(
             std::borrow::Cow::Borrowed("attention_mask"),
             ort::session::SessionInputValue::from(attention_mask_val),
+        );
+        inputs_map.insert(
+            std::borrow::Cow::Borrowed("token_type_ids"),
+            ort::session::SessionInputValue::from(token_type_ids_val),
         );
 
         let mut session_lock = self.session.lock().unwrap();

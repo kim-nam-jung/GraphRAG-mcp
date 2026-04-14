@@ -29,8 +29,11 @@ struct GraphData {
 
 fn fetch_graph_data() -> Result<GraphData> {
     let conn = Connection::open("./data/graph.db")?;
+    
+    let count: i64 = conn.query_row("SELECT count(*) FROM entities", [], |row| row.get(0)).unwrap_or(-1);
+    error!("Entities count in web.rs: {}", count);
 
-    let mut stmt = conn.prepare("SELECT name, type, qualified_name, community FROM entities")?;
+    let mut stmt = conn.prepare("SELECT name, type, qualified_name, community_id FROM entities")?;
     let entity_iter = stmt.query_map([], |row| {
         Ok(Entity {
             name: row.get(0)?,
@@ -42,12 +45,18 @@ fn fetch_graph_data() -> Result<GraphData> {
 
     let mut entities = Vec::new();
     for e in entity_iter {
-        if let Ok(entity) = e {
-            entities.push(entity);
+        match e {
+            Ok(entity) => entities.push(entity),
+            Err(err) => error!("Entity row error: {}", err),
         }
     }
 
-    let mut stmt = conn.prepare("SELECT source, target, relation_type FROM relations")?;
+    let mut stmt = conn.prepare(
+        "SELECT e1.name as source, e2.name as target, r.type as relation_type 
+         FROM relations r
+         JOIN entities e1 ON r.source_id = e1.id
+         JOIN entities e2 ON r.target_id = e2.id"
+    )?;
     let rel_iter = stmt.query_map([], |row| {
         Ok(Relation {
             source: row.get(0)?,
@@ -58,8 +67,9 @@ fn fetch_graph_data() -> Result<GraphData> {
 
     let mut relations = Vec::new();
     for r in rel_iter {
-        if let Ok(rel) = r {
-            relations.push(rel);
+        match r {
+            Ok(rel) => relations.push(rel),
+            Err(err) => error!("Relation row error: {}", err),
         }
     }
 
@@ -69,17 +79,25 @@ fn fetch_graph_data() -> Result<GraphData> {
     })
 }
 
-async fn api_graph() -> Json<GraphData> {
+async fn api_graph() -> Result<Json<GraphData>, String> {
     match fetch_graph_data() {
-        Ok(data) => Json(data),
+        Ok(data) => Ok(Json(data)),
         Err(e) => {
             error!("Failed to fetch graph data: {}", e);
-            Json(GraphData {
-                entities: vec![],
-                relations: vec![],
-            })
+            Err(e.to_string())
         }
     }
+}
+
+async fn api_debug() -> String {
+    use std::env;
+    let cwd = env::current_dir().unwrap_or_default();
+    let conn = match Connection::open("./data/graph.db") {
+        Ok(c) => c,
+        Err(e) => return format!("Failed to open DB: {}", e),
+    };
+    let count: i64 = conn.query_row("SELECT count(*) FROM entities", [], |row| row.get(0)).unwrap_or(-1);
+    format!("CWD: {:?}\nEntities Count: {}", cwd, count)
 }
 
 pub async fn start_server() {
@@ -87,6 +105,7 @@ pub async fn start_server() {
 
     let app = Router::new()
         .route("/api/graph", get(api_graph))
+        .route("/api/debug", get(api_debug))
         .fallback_service(serve_dir);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));

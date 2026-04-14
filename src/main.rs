@@ -18,10 +18,6 @@ async fn main() -> Result<()> {
     let search_engine = search::SearchEngine::new(&db, &harrier, &tokenizer, &cfg);
     let mcp_server = mcp::McpServer::new(search_engine, &db, &harrier, &tokenizer, &cfg);
 
-    tokio::spawn(async {
-        graphrag_mcp::web::start_server().await;
-    });
-
     if let Err(e) = mcp_server.run_stdio().await {
         error!("MCP Server terminated with error: {:?}", e);
         std::process::exit(1);

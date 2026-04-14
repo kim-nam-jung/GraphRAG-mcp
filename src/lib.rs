@@ -5,4 +5,4 @@ pub mod indexer;
 pub mod mcp;
 pub mod search;
 pub mod storage;
-pub mod web;
+

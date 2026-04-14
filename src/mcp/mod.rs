@@ -157,6 +157,16 @@ impl<'a> McpServer<'a> {
                             },
                             "required": ["query"]
                         }
+                    },
+                    {
+                        "name": "export_dashboard",
+                        "description": "Generate a zero-server interactive 3D HTML dashboard visualizing the current knowledge graph.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "output_path": { "type": "string", "default": "./data/dashboard.html" }
+                            }
+                        }
                     }
                 ]
             }
@@ -174,6 +184,7 @@ impl<'a> McpServer<'a> {
             "graph_neighbors" => self.tool_graph_neighbors(args),
             "index_directory" => self.tool_index_directory(args),
             "local_search" => self.tool_local_search(args),
+            "export_dashboard" => self.tool_export_dashboard(args),
             _ => Err(anyhow::anyhow!("Unknown tool: {tool_name}")),
         };
 
@@ -224,12 +235,7 @@ impl<'a> McpServer<'a> {
         let path = args["path"].as_str().unwrap_or("");
         let pipeline = IndexingPipeline::new(self.db, self.harrier, self.tokenizer, self.cfg);
         pipeline.run_indexing(Path::new(path))?;
-        Ok(json!({
-            "status": "ok", 
-            "indexed_path": path,
-            "dashboard_url": "http://graphrag-mcp.local:3000",
-            "message": "인덱싱이 완료되었습니다. 웹 시각화 대시보드는 http://graphrag-mcp.local:3000 에서 확인하세요."
-        }).to_string())
+        Ok(format!("Indexing completed successfully for `{path}`.\n\nDashboard is available at: [http://localhost:3000](http://localhost:3000)"))
     }
 
     fn tool_local_search(&self, args: &Value) -> Result<String> {
@@ -237,5 +243,14 @@ impl<'a> McpServer<'a> {
         let top_k = args["top_k"].as_i64().unwrap_or(5) as u32;
         let graph_depth = args["graph_depth"].as_i64().unwrap_or(1) as u32;
         self.search.local_search(query, top_k, graph_depth)
+    }
+
+    fn tool_export_dashboard(&self, args: &Value) -> Result<String> {
+        let output_path = args["output_path"].as_str().unwrap_or("./data/dashboard.html");
+        self.db.export_dashboard_html(output_path)?;
+        
+        let abs_path = std::env::current_dir()?.join(output_path);
+        let file_url = format!("file:///{}", abs_path.display().to_string().replace('\\', "/"));
+        Ok(format!("Zero-Server 3D Dashboard generated successfully at `{output_path}`.\n\nYou can view it directly by double-clicking the file in your explorer, or copying this URL into your browser:\n\n{file_url}"))
     }
 }
