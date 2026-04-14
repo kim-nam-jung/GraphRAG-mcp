@@ -1,6 +1,6 @@
+use super::base::{Entity, Extractor, Relation};
 use anyhow::Result;
 use tree_sitter::{Parser, Query, QueryCursor};
-use super::base::{Entity, Relation, Extractor};
 
 pub struct RustExtractor {
     parser: Parser,
@@ -25,8 +25,10 @@ impl RustExtractor {
 impl Extractor for RustExtractor {
     fn parse(&mut self, content: &str) -> Result<()> {
         self.content = content.to_string();
-        
-        let tree = self.parser.parse(content, None)
+
+        let tree = self
+            .parser
+            .parse(content, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse Rust code"))?;
 
         let language = tree_sitter_rust::language();
@@ -38,7 +40,7 @@ impl Extractor for RustExtractor {
         ";
         let query = Query::new(&language, query_str)?;
         let mut cursor = QueryCursor::new();
-        
+
         let call_query = Query::new(&language, "(call_expression function: [ (identifier) @call (field_expression field: (field_identifier) @call) (scoped_identifier name: (identifier) @call) ])")?;
 
         let bindings = cursor.matches(&query, tree.root_node(), content.as_bytes());
@@ -52,7 +54,7 @@ impl Extractor for RustExtractor {
             for capture in m.captures {
                 let name = capture.node.utf8_text(content.as_bytes())?.to_string();
                 let capture_name = query.capture_names()[capture.index as usize];
-                
+
                 if capture_name == "struct" || capture_name == "trait" || capture_name == "func" {
                     ent_name = name;
                     ent_type = match capture_name {
@@ -119,19 +121,23 @@ mod tests {
                 x.do_magic();
             }
         "#;
-        
+
         extractor.parse(code).expect("Extraction failed");
         let (entities, _) = extractor.extract().expect("Extraction failed");
-        
+
         assert!(!entities.is_empty(), "Should extract entities");
-        
+
         let names: Vec<String> = entities.iter().map(|e| e.name.clone()).collect();
         assert!(names.contains(&"MyStruct".to_string()));
         assert!(names.contains(&"do_magic".to_string()));
         assert!(names.contains(&"main".to_string()));
-        
+
         for e in entities {
-            assert!(e.end_byte > e.start_byte, "Byte span must be valid for {}", e.name);
+            assert!(
+                e.end_byte > e.start_byte,
+                "Byte span must be valid for {}",
+                e.name
+            );
         }
     }
 }

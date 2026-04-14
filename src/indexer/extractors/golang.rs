@@ -1,6 +1,6 @@
+use super::base::{Entity, Extractor, Relation};
 use anyhow::Result;
 use tree_sitter::{Parser, Query, QueryCursor};
-use super::base::{Entity, Relation, Extractor};
 
 pub struct GoExtractor {
     parser: Parser,
@@ -26,12 +26,14 @@ impl GoExtractor {
 impl Extractor for GoExtractor {
     fn parse(&mut self, content: &str) -> Result<()> {
         self.content = content.to_string();
-        
-        let tree = self.parser.parse(content, None)
+
+        let tree = self
+            .parser
+            .parse(content, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse Go code"))?;
 
         let language = tree_sitter_go::language();
-        
+
         // 1. Query for Entities
         let query_str = "
             (function_declaration name: (identifier) @func body: (block) @body)
@@ -40,7 +42,7 @@ impl Extractor for GoExtractor {
         ";
         let query = Query::new(&language, query_str)?;
         let mut cursor = QueryCursor::new();
-        
+
         let call_query = Query::new(&language, "(call_expression function: (identifier) @call)")?;
 
         let bindings = cursor.matches(&query, tree.root_node(), content.as_bytes());
@@ -54,7 +56,7 @@ impl Extractor for GoExtractor {
             for capture in m.captures {
                 let name = capture.node.utf8_text(content.as_bytes())?.to_string();
                 let capture_name = query.capture_names()[capture.index as usize];
-                
+
                 if capture_name == "func" || capture_name == "type" || capture_name == "method" {
                     ent_name = name;
                     ent_type = match capture_name {
@@ -125,22 +127,32 @@ func (s *Server) Start() {
 func InitDB() {
 }
         "#;
-        
+
         let mut ext = GoExtractor::new().expect("Failed to init go extractor");
         ext.parse(code).expect("Failed to parse go code");
-        
+
         let (entities, relations) = ext.extract().unwrap();
-        
+
         let ent_names: Vec<&str> = entities.iter().map(|e| e.name.as_str()).collect();
         assert!(ent_names.contains(&"Server"));
         assert!(ent_names.contains(&"Start"));
         assert!(ent_names.contains(&"InitDB"));
-        
+
         // Ensure CALLS relations exist
-        let call_init = relations.iter().find(|r| r.source == "Start" && r.target == "InitDB");
-        let call_log = relations.iter().find(|r| r.source == "Start" && r.target == "LogMessage");
-        
-        assert!(call_init.is_some(), "Relation Start -> CALLS -> InitDB missing");
-        assert!(call_log.is_some(), "Relation Start -> CALLS -> LogMessage missing");
+        let call_init = relations
+            .iter()
+            .find(|r| r.source == "Start" && r.target == "InitDB");
+        let call_log = relations
+            .iter()
+            .find(|r| r.source == "Start" && r.target == "LogMessage");
+
+        assert!(
+            call_init.is_some(),
+            "Relation Start -> CALLS -> InitDB missing"
+        );
+        assert!(
+            call_log.is_some(),
+            "Relation Start -> CALLS -> LogMessage missing"
+        );
     }
 }

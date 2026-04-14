@@ -1,3 +1,3 @@
 pub mod extractors;
-pub mod scanner;
 pub mod pipeline;
+pub mod scanner;

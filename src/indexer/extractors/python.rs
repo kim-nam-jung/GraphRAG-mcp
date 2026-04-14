@@ -1,6 +1,6 @@
+use super::base::{Entity, Extractor, Relation};
 use anyhow::Result;
 use tree_sitter::{Parser, Query, QueryCursor};
-use super::base::{Entity, Relation, Extractor};
 
 pub struct PyExtractor {
     parser: Parser,
@@ -25,8 +25,10 @@ impl PyExtractor {
 impl Extractor for PyExtractor {
     fn parse(&mut self, content: &str) -> Result<()> {
         self.content = content.to_string();
-        
-        let tree = self.parser.parse(content, None)
+
+        let tree = self
+            .parser
+            .parse(content, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse Python code"))?;
 
         let language = tree_sitter_python::language();
@@ -36,7 +38,7 @@ impl Extractor for PyExtractor {
         ";
         let query = Query::new(&language, query_str)?;
         let mut cursor = QueryCursor::new();
-        
+
         let call_query_str = "
             (call function: (identifier) @call)
             (call function: (attribute attribute: (identifier) @call))
@@ -54,10 +56,14 @@ impl Extractor for PyExtractor {
             for capture in m.captures {
                 let name = capture.node.utf8_text(content.as_bytes())?.to_string();
                 let capture_name = query.capture_names()[capture.index as usize];
-                
+
                 if capture_name == "class" || capture_name == "func" {
                     ent_name = name;
-                    ent_type = if capture_name == "class" { "CLASS" } else { "FUNCTION" };
+                    ent_type = if capture_name == "class" {
+                        "CLASS"
+                    } else {
+                        "FUNCTION"
+                    };
                     let parent = capture.node.parent().unwrap_or(capture.node);
                     start_b = parent.start_byte();
                     end_b = parent.end_byte();
@@ -115,22 +121,32 @@ class AuthHandler:
 def check_signature():
     print("Checked")
         "#;
-        
+
         let mut ext = PyExtractor::new().expect("Failed to init py extractor");
         ext.parse(code).expect("Failed to parse PY code");
-        
+
         let (entities, relations) = ext.extract().unwrap();
-        
+
         let ent_names: Vec<&str> = entities.iter().map(|e| e.name.as_str()).collect();
         assert!(ent_names.contains(&"AuthHandler"));
         assert!(ent_names.contains(&"verify_request"));
         assert!(ent_names.contains(&"check_signature"));
-        
+
         // Ensure CALLS relations exist
-        let call_check = relations.iter().find(|r| r.source == "verify_request" && r.target == "check_signature");
-        let call_load = relations.iter().find(|r| r.source == "verify_request" && r.target == "load_user");
-        
-        assert!(call_check.is_some(), "Relation verify_request -> CALLS -> check_signature missing");
-        assert!(call_load.is_some(), "Relation verify_request -> CALLS -> load_user missing");
+        let call_check = relations
+            .iter()
+            .find(|r| r.source == "verify_request" && r.target == "check_signature");
+        let call_load = relations
+            .iter()
+            .find(|r| r.source == "verify_request" && r.target == "load_user");
+
+        assert!(
+            call_check.is_some(),
+            "Relation verify_request -> CALLS -> check_signature missing"
+        );
+        assert!(
+            call_load.is_some(),
+            "Relation verify_request -> CALLS -> load_user missing"
+        );
     }
 }

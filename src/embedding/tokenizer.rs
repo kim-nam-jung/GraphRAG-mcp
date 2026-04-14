@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use tiktoken_rs::CoreBPE;
 use std::sync::Arc;
+use tiktoken_rs::CoreBPE;
 use tracing::info;
 
 pub struct Tokenizer {
@@ -10,14 +10,12 @@ pub struct Tokenizer {
 impl Tokenizer {
     pub fn new(_tokenizer_path: &str) -> Result<Self> {
         // Our Harrier model requires standard cl100k_base embedding.
-        // We explicitly ignore the path and load the official matching vocab 
+        // We explicitly ignore the path and load the official matching vocab
         // to guarantee exact token identity with Go cl100k_base mapping!
         let bpe = tiktoken_rs::cl100k_base().context("Failed to load cl100k_base tokenizer")?;
         info!("Loaded pure-Rust Tiktoken tokenizer for cl100k_base");
-        
-        Ok(Self {
-            tkm: Arc::new(bpe),
-        })
+
+        Ok(Self { tkm: Arc::new(bpe) })
     }
 
     pub fn encode(&self, text: &str, add_special_tokens: bool) -> Result<Vec<u32>> {
@@ -41,16 +39,22 @@ mod tests {
     fn test_tokenizer_cl100k_base() {
         // new() expects a dummy path, it loads official cl100k_base anyway
         let tkm = Tokenizer::new("dummy").expect("Should load cl100k_base");
-        
+
         // Encode test
         let text = "Hello world! This is a test.";
         let encoded = tkm.encode(text, false).expect("Should encode text");
-        
+
         assert!(!encoded.is_empty(), "Encoded array must not be empty");
         // 'Hello' -> 9906, ' world' -> 1917, '!' -> 0 (wait, ! is a token), etc.
         assert!(encoded.len() > 3, "Should have multiple tokens");
-        
-        let encoded_with_special = tkm.encode(text, true).expect("Should encode with special tokens");
-        assert_eq!(encoded.len(), encoded_with_special.len(), "Without special tokens in string, length matches");
+
+        let encoded_with_special = tkm
+            .encode(text, true)
+            .expect("Should encode with special tokens");
+        assert_eq!(
+            encoded.len(),
+            encoded_with_special.len(),
+            "Without special tokens in string, length matches"
+        );
     }
 }

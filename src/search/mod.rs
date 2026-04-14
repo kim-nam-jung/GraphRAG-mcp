@@ -1,12 +1,12 @@
-use anyhow::Result;
-use serde_json::json;
 use crate::config::Config;
-use crate::storage::Database;
 use crate::embedding::HarrierModel;
 use crate::embedding::Tokenizer;
+use crate::storage::Database;
+use anyhow::Result;
+use serde_json::json;
+use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
-use std::path::Path;
 
 pub struct SearchEngine<'a> {
     db: &'a Database,
@@ -17,8 +17,19 @@ pub struct SearchEngine<'a> {
 }
 
 impl<'a> SearchEngine<'a> {
-    pub fn new(db: &'a Database, model: &'a HarrierModel, tokenizer: &'a Tokenizer, cfg: &'a Config) -> Self {
-        Self { db, model, tokenizer, cfg, last_reindex: Mutex::new(None) }
+    pub fn new(
+        db: &'a Database,
+        model: &'a HarrierModel,
+        tokenizer: &'a Tokenizer,
+        cfg: &'a Config,
+    ) -> Self {
+        Self {
+            db,
+            model,
+            tokenizer,
+            cfg,
+            last_reindex: Mutex::new(None),
+        }
     }
 
     pub fn local_search(&self, query: &str, top_k: u32, graph_depth: u32) -> Result<String> {
@@ -29,11 +40,19 @@ impl<'a> SearchEngine<'a> {
                 Some(time) => time.elapsed().as_secs() >= self.cfg.indexer.reindex_cooldown_sec,
                 None => true,
             };
-            
+
             if should_reindex {
-                tracing::info!("Auto-reindex condition met (cooldown {}s). Triggering indexing pipeline...", self.cfg.indexer.reindex_cooldown_sec);
+                tracing::info!(
+                    "Auto-reindex condition met (cooldown {}s). Triggering indexing pipeline...",
+                    self.cfg.indexer.reindex_cooldown_sec
+                );
                 // Pipeline requires 4 parameters dynamically mirroring search
-                let pipeline = crate::indexer::pipeline::IndexingPipeline::new(self.db, self.model, self.tokenizer, self.cfg);
+                let pipeline = crate::indexer::pipeline::IndexingPipeline::new(
+                    self.db,
+                    self.model,
+                    self.tokenizer,
+                    self.cfg,
+                );
                 if let Err(e) = pipeline.run_indexing(Path::new(&self.cfg.indexer.project_root)) {
                     tracing::error!("Auto-reindex failed during local_search hook: {}", e);
                 } else {
@@ -43,7 +62,12 @@ impl<'a> SearchEngine<'a> {
             }
         }
 
-        let embedding = self.model.embed(query, true, &self.cfg.embedding.query_instruction, self.tokenizer)?;
+        let embedding = self.model.embed(
+            query,
+            true,
+            &self.cfg.embedding.query_instruction,
+            self.tokenizer,
+        )?;
 
         let similar = self.db.search_similar_chunks(&embedding, top_k)?;
 
@@ -96,14 +120,25 @@ impl<'a> SearchEngine<'a> {
     }
 
     pub fn global_search(&self, query: &str, max_entities: u32) -> Result<String> {
-        let results = self.db.search_fts(query, max_entities)?;
+        let embedding = self.model.embed(
+            query,
+            true,
+            &self.cfg.embedding.query_instruction,
+            self.tokenizer,
+        )?;
+        let results = self.db.search_similar_entities(&embedding, max_entities)?;
 
-        let items: Vec<_> = results.iter().map(|r| json!({
-            "name": r.name,
-            "type": r.entity_type,
-            "file_path": r.file_path,
-            "snippet": r.snippet,
-        })).collect();
+        let items: Vec<_> = results
+            .iter()
+            .map(|r| {
+                json!({
+                    "name": r.name,
+                    "type": r.entity_type,
+                    "file_path": r.file_path,
+                    "qualified_name": r.snippet,
+                })
+            })
+            .collect();
 
         Ok(serde_json::to_string_pretty(&json!({ "results": items }))?)
     }

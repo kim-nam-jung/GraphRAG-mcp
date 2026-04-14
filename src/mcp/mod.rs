@@ -1,15 +1,15 @@
-use anyhow::Result;
 use crate::config::Config;
-use crate::search::SearchEngine;
-use crate::storage::Database;
 use crate::embedding::{HarrierModel, Tokenizer};
 use crate::indexer::pipeline::IndexingPipeline;
+use crate::search::SearchEngine;
+use crate::storage::Database;
+use anyhow::Result;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::io::{self, Write};
-use tokio::io::{self as tokio_io, AsyncBufReadExt};
 use std::path::Path;
-use tracing::{info, error};
+use tokio::io::{self as tokio_io, AsyncBufReadExt};
+use tracing::{error, info};
 
 pub struct McpServer<'a> {
     search: SearchEngine<'a>,
@@ -34,7 +34,13 @@ impl<'a> McpServer<'a> {
         tokenizer: &'a Tokenizer,
         cfg: &'a Config,
     ) -> Self {
-        Self { search, db, harrier, tokenizer, cfg }
+        Self {
+            search,
+            db,
+            harrier,
+            tokenizer,
+            cfg,
+        }
     }
 
     pub async fn run_stdio(&self) -> Result<()> {
@@ -48,7 +54,7 @@ impl<'a> McpServer<'a> {
                 Ok(request) => {
                     if let Some(res) = self.handle_request(request) {
                         let mut out = io::stdout().lock();
-                        writeln!(out, "{}", res)?;
+                        writeln!(out, "{res}")?;
                         out.flush()?;
                     }
                 }
@@ -81,7 +87,8 @@ impl<'a> McpServer<'a> {
                     "version": "1.0.0"
                 }
             }
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn handle_tools_list(&self, id: &Option<Value>) -> String {
@@ -90,18 +97,6 @@ impl<'a> McpServer<'a> {
             "id": id,
             "result": {
                 "tools": [
-                    {
-                        "name": "keyword_search",
-                        "description": "FTS5 keyword search over indexed code chunks and entities.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "query": { "type": "string" },
-                                "top_k": { "type": "integer", "default": 10 }
-                            },
-                            "required": ["query"]
-                        }
-                    },
                     {
                         "name": "get_entity",
                         "description": "Get detailed information about a code entity including its relations.",
@@ -112,18 +107,6 @@ impl<'a> McpServer<'a> {
                                 "file": { "type": "string" }
                             },
                             "required": ["name", "file"]
-                        }
-                    },
-                    {
-                        "name": "global_search",
-                        "description": "Broad search across all entities with relationship context.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "query": { "type": "string" },
-                                "max_entities": { "type": "integer", "default": 50 }
-                            },
-                            "required": ["query"]
                         }
                     },
                     {
@@ -162,6 +145,18 @@ impl<'a> McpServer<'a> {
                             },
                             "required": ["query"]
                         }
+                    },
+                    {
+                        "name": "global_search",
+                        "description": "Broad search across all entities with relationship context.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "query": { "type": "string" },
+                                "max_entities": { "type": "integer", "default": 50 }
+                            },
+                            "required": ["query"]
+                        }
                     }
                 ]
             }
@@ -174,13 +169,12 @@ impl<'a> McpServer<'a> {
         let args = &params["arguments"];
 
         let result = match tool_name {
-            "keyword_search" => self.tool_keyword_search(args),
             "get_entity" => self.tool_get_entity(args),
             "global_search" => self.tool_global_search(args),
             "graph_neighbors" => self.tool_graph_neighbors(args),
             "index_directory" => self.tool_index_directory(args),
             "local_search" => self.tool_local_search(args),
-            _ => Err(anyhow::anyhow!("Unknown tool: {}", tool_name)),
+            _ => Err(anyhow::anyhow!("Unknown tool: {tool_name}")),
         };
 
         match result {
@@ -190,7 +184,8 @@ impl<'a> McpServer<'a> {
                 "result": {
                     "content": [{ "type": "text", "text": text }]
                 }
-            }).to_string(),
+            })
+            .to_string(),
             Err(e) => json!({
                 "jsonrpc": "2.0",
                 "id": id,
@@ -198,17 +193,10 @@ impl<'a> McpServer<'a> {
                     "content": [{ "type": "text", "text": format!("Error: {}", e) }],
                     "isError": true
                 }
-            }).to_string(),
+            })
+            .to_string(),
         }
     }
-
-    fn tool_keyword_search(&self, args: &Value) -> Result<String> {
-        let query = args["query"].as_str().unwrap_or("");
-        let top_k = args["top_k"].as_i64().unwrap_or(10) as u32;
-        let results = self.db.search_fts(query, top_k)?;
-        Ok(serde_json::to_string_pretty(&results)?)
-    }
-
     fn tool_get_entity(&self, args: &Value) -> Result<String> {
         let name = args["name"].as_str().unwrap_or("");
         let file = args["file"].as_str().unwrap_or("");
@@ -236,7 +224,12 @@ impl<'a> McpServer<'a> {
         let path = args["path"].as_str().unwrap_or("");
         let pipeline = IndexingPipeline::new(self.db, self.harrier, self.tokenizer, self.cfg);
         pipeline.run_indexing(Path::new(path))?;
-        Ok(json!({"status": "ok", "indexed_path": path}).to_string())
+        Ok(json!({
+            "status": "ok", 
+            "indexed_path": path,
+            "dashboard_url": "http://graphrag-mcp.local:3000",
+            "message": "인덱싱이 완료되었습니다. 웹 시각화 대시보드는 http://graphrag-mcp.local:3000 에서 확인하세요."
+        }).to_string())
     }
 
     fn tool_local_search(&self, args: &Value) -> Result<String> {

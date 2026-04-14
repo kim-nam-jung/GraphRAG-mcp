@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use anyhow::{Context, Result};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerConfig {
@@ -23,7 +23,9 @@ pub struct IndexerConfig {
     pub reindex_cooldown_sec: u64,
 }
 
-fn default_reindex_cooldown() -> u64 { 10 }
+fn default_reindex_cooldown() -> u64 {
+    10
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EmbeddingConfig {
@@ -47,7 +49,6 @@ pub struct GraphConfig {
     pub min_community_size: usize,
 }
 
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub server: ServerConfig,
@@ -58,10 +59,10 @@ pub struct Config {
 }
 
 pub fn load_config(path: &str) -> Result<Config> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read config from {}", path))?;
-    let config: Config = serde_yaml::from_str(&content)
-        .with_context(|| "Failed to parse YAML config")?;
+    let content =
+        fs::read_to_string(path).with_context(|| format!("Failed to read config from {path}"))?;
+    let config: Config =
+        serde_yaml::from_str(&content).with_context(|| "Failed to parse YAML config")?;
     Ok(config)
 }
 
@@ -101,7 +102,7 @@ graph:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.storage.db_path, ":memory:");
         assert_eq!(config.indexer.tier1, vec!["*.rs".to_string()]);
-        assert_eq!(config.indexer.auto_reindex, true);
+        assert!(config.indexer.auto_reindex);
         assert_eq!(config.indexer.reindex_cooldown_sec, 120);
     }
 }

@@ -1,7 +1,7 @@
 #![allow(warnings)]
 use anyhow::Result;
-use graphrag_mcp::embedding::Tokenizer;
 use graphrag_mcp::embedding::HarrierModel;
+use graphrag_mcp::embedding::Tokenizer;
 use graphrag_mcp::storage::Database;
 
 #[test]
@@ -38,7 +38,13 @@ fn test_database_schema() -> Result<()> {
     assert!(!results.is_empty(), "FTS should find the inserted entity");
 
     // Verify chunk insert + line tracking
-    let chunk_id = db.insert_chunk("func main() {}", "test.go", Some(1), Some(1), Some(entity_id))?;
+    let chunk_id = db.insert_chunk(
+        "func main() {}",
+        "test.go",
+        Some(1),
+        Some(1),
+        Some(entity_id),
+    )?;
     assert!(chunk_id > 0);
 
     // Verify get_entity with relations

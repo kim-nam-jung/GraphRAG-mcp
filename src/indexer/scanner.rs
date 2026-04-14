@@ -1,9 +1,9 @@
-use anyhow::Result;
-use std::path::{Path, PathBuf};
-use ignore::WalkBuilder;
-use glob::Pattern;
-use tracing::info;
 use crate::config::IndexerConfig;
+use anyhow::Result;
+use glob::Pattern;
+use ignore::WalkBuilder;
+use std::path::{Path, PathBuf};
+use tracing::info;
 
 pub struct Scanner;
 
@@ -11,7 +11,9 @@ impl Scanner {
     pub fn scan_directory(path: &Path, cfg: &IndexerConfig) -> Result<Vec<PathBuf>> {
         info!("Scanning directory: {:?}", path);
 
-        let all_extensions: Vec<&str> = cfg.tier1.iter()
+        let all_extensions: Vec<&str> = cfg
+            .tier1
+            .iter()
             .chain(cfg.tier2.iter())
             .chain(cfg.tier3.iter())
             .map(|s| s.as_str())
@@ -19,10 +21,7 @@ impl Scanner {
 
         let mut files = Vec::new();
 
-        let walker = WalkBuilder::new(path)
-            .hidden(true)
-            .git_ignore(true)
-            .build();
+        let walker = WalkBuilder::new(path).hidden(true).git_ignore(true).build();
 
         for result in walker {
             match result {
@@ -73,4 +72,3 @@ impl Scanner {
         Ok(files)
     }
 }
-

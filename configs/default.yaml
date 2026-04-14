@@ -16,7 +16,7 @@ embedding:
   model_path: "./models/harrier/model.onnx"
   tokenizer_path: "./models/harrier/tokenizer.json"
   quantization: "q4"
-  dimension: 640
+  dimension: 384
   max_tokens: 512
   query_instruction: "Instruct: Given a code search query, retrieve relevant code snippets\nQuery: "
 

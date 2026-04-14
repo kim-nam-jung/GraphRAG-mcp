@@ -1,6 +1,6 @@
+use super::base::{Entity, Extractor, Relation};
 use anyhow::Result;
 use tree_sitter::{Parser, Query, QueryCursor};
-use super::base::{Entity, Relation, Extractor};
 
 pub struct CSharpExtractor {
     parser: Parser,
@@ -13,20 +13,31 @@ impl CSharpExtractor {
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
         parser.set_language(&tree_sitter_c_sharp::language())?;
-        Ok(Self { parser, content: String::new(), entities: Vec::new(), relations: Vec::new() })
+        Ok(Self {
+            parser,
+            content: String::new(),
+            entities: Vec::new(),
+            relations: Vec::new(),
+        })
     }
 }
 
 impl Extractor for CSharpExtractor {
     fn parse(&mut self, content: &str) -> Result<()> {
         self.content = content.to_string();
-        let tree = self.parser.parse(content, None).ok_or_else(|| anyhow::anyhow!("Failed to parse C#"))?;
+        let tree = self
+            .parser
+            .parse(content, None)
+            .ok_or_else(|| anyhow::anyhow!("Failed to parse C#"))?;
         let language = tree_sitter_c_sharp::language();
-        let query = Query::new(&language, "
+        let query = Query::new(
+            &language,
+            "
             (class_declaration name: (identifier) @class)
             (interface_declaration name: (identifier) @interface)
             (method_declaration name: (identifier) @method body: (block)? @body)
-        ")?;
+        ",
+        )?;
         let call_query = Query::new(&language, "
             (invocation_expression function: [ (identifier) @call (member_access_expression name: (identifier) @call) ])
         ")?;
@@ -43,7 +54,7 @@ impl Extractor for CSharpExtractor {
             for c in m.captures {
                 let name = c.node.utf8_text(content.as_bytes())?.to_string();
                 let cname = query.capture_names()[c.index as usize];
-                
+
                 if cname == "class" || cname == "interface" || cname == "method" {
                     ent_name = name;
                     ent_type = match cname {
@@ -60,9 +71,9 @@ impl Extractor for CSharpExtractor {
             }
 
             if !ent_name.is_empty() {
-                self.entities.push(Entity { 
-                    name: ent_name.clone(), 
-                    entity_type: ent_type.to_string(), 
+                self.entities.push(Entity {
+                    name: ent_name.clone(),
+                    entity_type: ent_type.to_string(),
                     qualified_name: ent_name.clone(),
                     start_byte: start_b,
                     end_byte: end_b,
@@ -86,7 +97,9 @@ impl Extractor for CSharpExtractor {
         }
         Ok(())
     }
-    fn extract(&self) -> Result<(Vec<Entity>, Vec<Relation>)> { Ok((self.entities.clone(), self.relations.clone())) }
+    fn extract(&self) -> Result<(Vec<Entity>, Vec<Relation>)> {
+        Ok((self.entities.clone(), self.relations.clone()))
+    }
 }
 
 #[cfg(test)]
@@ -101,18 +114,22 @@ mod tests {
                 public void DoMagic() {}
             }
         "#;
-        
+
         extractor.parse(code).expect("Extraction failed");
         let (entities, _) = extractor.extract().expect("Extraction failed");
-        
+
         assert!(!entities.is_empty(), "Should extract entities");
-        
+
         let names: Vec<String> = entities.iter().map(|e| e.name.clone()).collect();
         assert!(names.contains(&"MyClass".to_string()));
         assert!(names.contains(&"DoMagic".to_string()));
-        
+
         for e in entities {
-            assert!(e.end_byte > e.start_byte, "Byte span must be valid for {}", e.name);
+            assert!(
+                e.end_byte > e.start_byte,
+                "Byte span must be valid for {}",
+                e.name
+            );
         }
     }
 }

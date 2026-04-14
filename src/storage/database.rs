@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use rusqlite::{Connection, params};
-use tracing::info;
+use rusqlite::{params, Connection};
 use serde::Serialize;
+use tracing::info;
 
 use std::sync::Once;
 
@@ -11,7 +11,9 @@ fn init_sqlite_vec() {
     INIT_SQLITE_VEC.call_once(|| {
         unsafe {
             // SAFETY: sqlite3_vec_init is safely transmuted to automatic extension loader as required by sqlite-vec C API.
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ())));
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
         }
     });
 }
@@ -57,20 +59,20 @@ impl Database {
     pub fn new(db_path: &str, wal_mode: bool) -> Result<Self> {
         init_sqlite_vec();
         let conn = Connection::open(db_path)
-            .with_context(|| format!("Failed to open database at {}", db_path))?;
-
-
+            .with_context(|| format!("Failed to open database at {db_path}"))?;
 
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
         if wal_mode {
-            conn.execute_batch("
+            conn.execute_batch(
+                "
                 PRAGMA journal_mode = WAL;
                 PRAGMA synchronous = NORMAL;
                 PRAGMA temp_store = MEMORY;
                 PRAGMA mmap_size = 30000000000;
                 PRAGMA page_size = 32768;
-            ")?;
+            ",
+            )?;
             info!("Database configured with WAL mode");
         }
 
@@ -167,6 +169,11 @@ impl Database {
                 embedding float[640]
             );
 
+            CREATE VIRTUAL TABLE IF NOT EXISTS vec_entities USING vec0(
+                entity_id INTEGER PRIMARY KEY,
+                embedding float[640]
+            );
+
             -- Performance indices
             CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
             CREATE INDEX IF NOT EXISTS idx_entities_file ON entities(file_path);
@@ -195,7 +202,13 @@ impl Database {
 
     // --- Entity Operations ---
 
-    pub fn insert_entity(&self, file_path: &str, name: &str, entity_type: &str, qualified_name: &str) -> Result<i64> {
+    pub fn insert_entity(
+        &self,
+        file_path: &str,
+        name: &str,
+        entity_type: &str,
+        qualified_name: &str,
+    ) -> Result<i64> {
         let id = self.conn.query_row(
             "INSERT INTO entities (file_path, name, type, qualified_name) VALUES (?1, ?2, ?3, ?4) RETURNING id",
             params![file_path, name, entity_type, qualified_name],
@@ -237,7 +250,11 @@ impl Database {
         let incoming = self.get_relations_incoming(entity.id)?;
         let outgoing = self.get_relations_outgoing(entity.id)?;
 
-        Ok(Some(EntityDetail { entity, incoming, outgoing }))
+        Ok(Some(EntityDetail {
+            entity,
+            incoming,
+            outgoing,
+        }))
     }
 
     fn get_relations_incoming(&self, entity_id: i64) -> Result<Vec<RelationRecord>> {
@@ -272,7 +289,13 @@ impl Database {
 
     // --- Relation Operations ---
 
-    pub fn insert_relation(&self, source_id: i64, target_id: i64, rel_type: &str, weight: f64) -> Result<()> {
+    pub fn insert_relation(
+        &self,
+        source_id: i64,
+        target_id: i64,
+        rel_type: &str,
+        weight: f64,
+    ) -> Result<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO relations (source_id, target_id, type, weight) VALUES (?1, ?2, ?3, ?4)",
             params![source_id, target_id, rel_type, weight],
@@ -280,9 +303,63 @@ impl Database {
         Ok(())
     }
 
+    pub fn insert_entity_vector(&self, entity_id: i64, embedding: &[f32]) -> Result<()> {
+        let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+        self.conn.execute(
+            "INSERT INTO vec_entities (entity_id, embedding) VALUES (?1, ?2)",
+            params![entity_id, bytes],
+        )?;
+        Ok(())
+    }
+
+    pub fn search_similar_entities(
+        &self,
+        query_embedding: &[f32],
+        top_k: u32,
+    ) -> Result<Vec<KeywordResult>> {
+        let bytes: Vec<u8> = query_embedding
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT e.name, e.type, e.file_path, e.qualified_name, v.distance
+            FROM vec_entities v
+            JOIN entities e ON v.entity_id = e.id
+            WHERE v.embedding MATCH ?1 AND k = ?2
+            ORDER BY v.distance ASC
+            "#,
+        )?;
+
+        let rows = stmt.query_map(params![bytes, top_k], |row| {
+            Ok(KeywordResult {
+                name: row.get(0)?,
+                entity_type: row.get(1)?,
+                file_path: row.get(2)?,
+                snippet: row.get(3)?, // Reusing snippet field for qualified_name logic
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for r in rows {
+            if let Ok(res) = r {
+                results.push(res);
+            }
+        }
+        Ok(results)
+    }
+
     // --- Chunk Operations ---
 
-    pub fn insert_chunk(&self, text: &str, file_path: &str, line_start: Option<i64>, line_end: Option<i64>, entity_id: Option<i64>) -> Result<i64> {
+    pub fn insert_chunk(
+        &self,
+        text: &str,
+        file_path: &str,
+        line_start: Option<i64>,
+        line_end: Option<i64>,
+        entity_id: Option<i64>,
+    ) -> Result<i64> {
         let id = self.conn.query_row(
             "INSERT INTO chunks (text, file_path, line_start, line_end, entity_id) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id",
             params![text, file_path, line_start, line_end, entity_id],
@@ -305,7 +382,7 @@ impl Database {
     pub fn search_similar_chunks(&self, embedding: &[f32], top_k: u32) -> Result<Vec<(i64, f64)>> {
         let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
         let mut stmt = self.conn.prepare(
-            "SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ?1 AND k = ?2"
+            "SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ?1 AND k = ?2",
         )?;
         let rows = stmt.query_map(params![bytes, top_k], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
@@ -323,7 +400,7 @@ impl Database {
              JOIN chunks c ON fc.rowid = c.id
              WHERE fts_chunks MATCH ?1
              ORDER BY rank
-             LIMIT ?2"
+             LIMIT ?2",
         )?;
         let chunk_results = stmt.query_map(params![query, top_k], |row| {
             Ok(KeywordResult {
@@ -341,7 +418,7 @@ impl Database {
              JOIN entities e ON fe.rowid = e.id
              WHERE fts_entities MATCH ?1
              ORDER BY rank
-             LIMIT ?2"
+             LIMIT ?2",
         )?;
         let entity_results = stmt2.query_map(params![query, top_k], |row| {
             Ok(KeywordResult {
@@ -352,7 +429,8 @@ impl Database {
             })
         })?;
 
-        let mut results: Vec<KeywordResult> = chunk_results.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut results: Vec<KeywordResult> =
+            chunk_results.collect::<rusqlite::Result<Vec<_>>>()?;
         results.extend(entity_results.collect::<rusqlite::Result<Vec<_>>>()?);
         results.truncate(top_k as usize);
         Ok(results)
@@ -360,13 +438,21 @@ impl Database {
 
     // --- Graph Neighbors (BFS) ---
 
-    pub fn graph_neighbors(&self, entity_name: &str, depth: u32, direction: &str) -> Result<Vec<EntityRecord>> {
+    pub fn graph_neighbors(
+        &self,
+        entity_name: &str,
+        depth: u32,
+        direction: &str,
+    ) -> Result<Vec<EntityRecord>> {
         // Find the entity ID first
-        let entity_id: Option<i64> = self.conn.query_row(
-            "SELECT id FROM entities WHERE name = ?1 LIMIT 1",
-            params![entity_name],
-            |row| row.get(0),
-        ).ok();
+        let entity_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM entities WHERE name = ?1 LIMIT 1",
+                params![entity_name],
+                |row| row.get(0),
+            )
+            .ok();
 
         let entity_id = match entity_id {
             Some(id) => id,
@@ -404,12 +490,16 @@ impl Database {
     fn get_neighbor_ids(&self, entity_id: i64, direction: &str) -> Result<Vec<i64>> {
         let mut ids = vec![];
         if direction == "outgoing" || direction == "both" {
-            let mut stmt = self.conn.prepare("SELECT target_id FROM relations WHERE source_id = ?1")?;
+            let mut stmt = self
+                .conn
+                .prepare("SELECT target_id FROM relations WHERE source_id = ?1")?;
             let rows = stmt.query_map(params![entity_id], |row| row.get::<_, i64>(0))?;
             ids.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
         }
         if direction == "incoming" || direction == "both" {
-            let mut stmt = self.conn.prepare("SELECT source_id FROM relations WHERE target_id = ?1")?;
+            let mut stmt = self
+                .conn
+                .prepare("SELECT source_id FROM relations WHERE target_id = ?1")?;
             let rows = stmt.query_map(params![entity_id], |row| row.get::<_, i64>(0))?;
             ids.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
         }
@@ -454,7 +544,13 @@ impl Database {
         }
     }
 
-    pub fn upsert_file_hash(&self, file_path: &str, mtime: i64, size: i64, hash: &str) -> Result<()> {
+    pub fn upsert_file_hash(
+        &self,
+        file_path: &str,
+        mtime: i64,
+        size: i64,
+        hash: &str,
+    ) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO file_hashes (file_path, mtime, size, hash) VALUES (?1, ?2, ?3, ?4)",
             params![file_path, mtime, size, hash],
@@ -463,10 +559,22 @@ impl Database {
     }
 
     pub fn delete_file_data(&self, file_path: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM vec_chunks WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?1)", params![file_path])?;
-        self.conn.execute("DELETE FROM chunks WHERE file_path = ?1", params![file_path])?;
-        self.conn.execute("DELETE FROM entities WHERE file_path = ?1", params![file_path])?;
-        self.conn.execute("DELETE FROM file_hashes WHERE file_path = ?1", params![file_path])?;
+        self.conn.execute(
+            "DELETE FROM vec_chunks WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?1)",
+            params![file_path],
+        )?;
+        self.conn.execute(
+            "DELETE FROM chunks WHERE file_path = ?1",
+            params![file_path],
+        )?;
+        self.conn.execute(
+            "DELETE FROM entities WHERE file_path = ?1",
+            params![file_path],
+        )?;
+        self.conn.execute(
+            "DELETE FROM file_hashes WHERE file_path = ?1",
+            params![file_path],
+        )?;
         Ok(())
     }
 
@@ -475,10 +583,14 @@ impl Database {
             "SELECT e1.name, e2.name, r.weight 
              FROM relations r 
              JOIN entities e1 ON r.source_id = e1.id 
-             JOIN entities e2 ON r.target_id = e2.id"
+             JOIN entities e2 ON r.target_id = e2.id",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+            ))
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
@@ -498,7 +610,9 @@ mod tests {
         let id = db.insert_entity("test.rs", "TestEntity", "CLASS", "test::TestEntity");
         assert!(id.is_ok());
 
-        let entity = db.get_entity("TestEntity", "test.rs").expect("Query failed");
+        let entity = db
+            .get_entity("TestEntity", "test.rs")
+            .expect("Query failed");
         assert!(entity.is_some());
         let ed = entity.unwrap();
         assert_eq!(ed.entity.name, "TestEntity");
@@ -511,7 +625,7 @@ mod tests {
         let db = setup_test_db();
         let src_id = db.insert_entity("a.rs", "Src", "FUNC", "Src").unwrap();
         let tgt_id = db.insert_entity("b.rs", "Tgt", "FUNC", "Tgt").unwrap();
-        
+
         let res = db.insert_relation(src_id, tgt_id, "CALLS", 1.0);
         assert!(res.is_ok());
 

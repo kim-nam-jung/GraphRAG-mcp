@@ -1,6 +1,6 @@
+use super::base::{Entity, Extractor, Relation};
 use anyhow::Result;
 use tree_sitter::{Parser, Query, QueryCursor};
-use super::base::{Entity, Relation, Extractor};
 
 pub struct TsExtractor {
     parser: Parser,
@@ -25,8 +25,10 @@ impl TsExtractor {
 impl Extractor for TsExtractor {
     fn parse(&mut self, content: &str) -> Result<()> {
         self.content = content.to_string();
-        
-        let tree = self.parser.parse(content, None)
+
+        let tree = self
+            .parser
+            .parse(content, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse TS code"))?;
 
         let language = tree_sitter_typescript::language_typescript();
@@ -39,7 +41,7 @@ impl Extractor for TsExtractor {
         ";
         let query = Query::new(&language, query_str)?;
         let mut cursor = QueryCursor::new();
-        
+
         let call_query = Query::new(&language, "(call_expression function: [ (identifier) @call (member_expression property: (property_identifier) @call) ])")?;
 
         let bindings = cursor.matches(&query, tree.root_node(), content.as_bytes());
@@ -53,8 +55,13 @@ impl Extractor for TsExtractor {
             for capture in m.captures {
                 let name = capture.node.utf8_text(content.as_bytes())?.to_string();
                 let capture_name = query.capture_names()[capture.index as usize];
-                
-                if capture_name == "class" || capture_name == "interface" || capture_name == "func" || capture_name == "method" || capture_name == "arrow" {
+
+                if capture_name == "class"
+                    || capture_name == "interface"
+                    || capture_name == "func"
+                    || capture_name == "method"
+                    || capture_name == "arrow"
+                {
                     ent_name = name;
                     ent_type = match capture_name {
                         "class" => "CLASS",
@@ -119,18 +126,23 @@ mod tests {
             }
             function walk() {}
         "#;
-        
+
         let mut ext = TsExtractor::new().expect("Failed to create ts extractor");
         ext.parse(code).expect("Failed to parse ts code");
-        
+
         let (entities, relations) = ext.extract().unwrap();
-        
+
         let ent_names: Vec<&str> = entities.iter().map(|e| e.name.as_str()).collect();
         assert!(ent_names.contains(&"BaseNode"));
         assert!(ent_names.contains(&"ASTNode"));
         assert!(ent_names.contains(&"parse"));
-        
-        let call_rel = relations.iter().find(|r| r.source == "parse" && r.target == "walk");
-        assert!(call_rel.is_some(), "Relation parse -> CALLS -> walk should exist");
+
+        let call_rel = relations
+            .iter()
+            .find(|r| r.source == "parse" && r.target == "walk");
+        assert!(
+            call_rel.is_some(),
+            "Relation parse -> CALLS -> walk should exist"
+        );
     }
 }

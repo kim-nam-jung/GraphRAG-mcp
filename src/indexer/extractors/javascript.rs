@@ -1,6 +1,6 @@
+use super::base::{Entity, Extractor, Relation};
 use anyhow::Result;
 use tree_sitter::{Parser, Query, QueryCursor};
-use super::base::{Entity, Relation, Extractor};
 
 pub struct JsExtractor {
     parser: Parser,
@@ -25,8 +25,10 @@ impl JsExtractor {
 impl Extractor for JsExtractor {
     fn parse(&mut self, content: &str) -> Result<()> {
         self.content = content.to_string();
-        
-        let tree = self.parser.parse(content, None)
+
+        let tree = self
+            .parser
+            .parse(content, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse JS code"))?;
 
         let language = tree_sitter_javascript::language();
@@ -38,7 +40,7 @@ impl Extractor for JsExtractor {
         ";
         let query = Query::new(&language, query_str)?;
         let mut cursor = QueryCursor::new();
-        
+
         // Find calls specifically looking at proper identifiers or member expressions
         let call_query = Query::new(&language, "(call_expression function: [ (identifier) @call (member_expression property: (property_identifier) @call) ])")?;
 
@@ -53,8 +55,12 @@ impl Extractor for JsExtractor {
             for capture in m.captures {
                 let name = capture.node.utf8_text(content.as_bytes())?.to_string();
                 let capture_name = query.capture_names()[capture.index as usize];
-                
-                if capture_name == "class" || capture_name == "func" || capture_name == "method" || capture_name == "arrow" {
+
+                if capture_name == "class"
+                    || capture_name == "func"
+                    || capture_name == "method"
+                    || capture_name == "arrow"
+                {
                     ent_name = name;
                     ent_type = match capture_name {
                         "class" => "CLASS",
@@ -121,20 +127,25 @@ mod tests {
                 console.log("valid");
             }
         "#;
-        
+
         let mut ext = JsExtractor::new().expect("Failed to create extractor");
         ext.parse(code).expect("Failed to parse JS code");
-        
+
         let (entities, relations) = ext.extract().unwrap();
-        
+
         // Ensure Entities are caught (class, method, func)
         let ent_names: Vec<&str> = entities.iter().map(|e| e.name.as_str()).collect();
         assert!(ent_names.contains(&"UserManager"));
         assert!(ent_names.contains(&"login"));
         assert!(ent_names.contains(&"validateToken"));
-        
+
         // Ensure CALLS relations are mapped correctly
-        let validate_call = relations.iter().find(|r| r.source == "login" && r.target == "validateToken");
-        assert!(validate_call.is_some(), "Relation login -> CALLS -> validateToken should exist");
+        let validate_call = relations
+            .iter()
+            .find(|r| r.source == "login" && r.target == "validateToken");
+        assert!(
+            validate_call.is_some(),
+            "Relation login -> CALLS -> validateToken should exist"
+        );
     }
 }

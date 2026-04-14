@@ -1,10 +1,12 @@
 use anyhow::Result;
-use tracing::{info, error};
 use graphrag_mcp::*;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
     info!("Starting GraphRAG MCP Rust Server...");
 
     let cfg = config::load_config("configs/default.yaml")?;
@@ -15,6 +17,10 @@ async fn main() -> Result<()> {
 
     let search_engine = search::SearchEngine::new(&db, &harrier, &tokenizer, &cfg);
     let mcp_server = mcp::McpServer::new(search_engine, &db, &harrier, &tokenizer, &cfg);
+
+    tokio::spawn(async {
+        graphrag_mcp::web::start_server().await;
+    });
 
     if let Err(e) = mcp_server.run_stdio().await {
         error!("MCP Server terminated with error: {:?}", e);

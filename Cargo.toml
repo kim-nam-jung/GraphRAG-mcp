@@ -47,6 +47,8 @@ sqlite-vec = "0.1.1"
 ort = "2.0.0-rc.12"
 leiden-rs = "0.6.0"
 gryf = "0.2.1"
+axum = "0.7"
+tower-http = { version = "0.5", features = ["fs", "cors"] }
 tree-sitter-scala = "0.21.0"
 tree-sitter-php = "0.23.0"
 tree-sitter-swift = { package = "devgen-tree-sitter-swift", version = "0.21.0" }
