@@ -7,3 +7,5 @@
 Cargo.lock
 graphrag-mcp*
 models/
+node_modules/
+npm-debug.log*

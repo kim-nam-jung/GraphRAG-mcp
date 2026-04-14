@@ -1,0 +1,21 @@
+{
+  "name": "@valscribe/graphrag-mcp",
+  "version": "1.0.0",
+  "description": "Zero-LLM Cost Local GraphRAG MCP Server",
+  "bin": {
+    "graphrag-mcp": "./bin/run.js"
+  },
+  "scripts": {
+    "start": "node ./bin/run.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/valscribe/graphrag-mcp.git"
+  },
+  "author": "ValScribe",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "tar": "^6.2.0"
+  }
+}
