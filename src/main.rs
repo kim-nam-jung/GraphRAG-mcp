@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
 
     let db = storage::Database::new(&cfg.storage.db_path, cfg.storage.wal_mode)?;
     let tokenizer = embedding::Tokenizer::new(&cfg.embedding.tokenizer_path)?;
-    let harrier = embedding::HarrierModel::new(&cfg.embedding.model_path)?;
+    let harrier = embedding::HarrierModel::new(&cfg.embedding.model_path, cfg.embedding.dimension)?;
 
     let search_engine = search::SearchEngine::new(&db, &harrier, &tokenizer, &cfg);
     let mcp_server = mcp::McpServer::new(search_engine, &db, &harrier, &tokenizer, &cfg);

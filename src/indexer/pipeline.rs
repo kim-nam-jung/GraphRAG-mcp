@@ -40,27 +40,48 @@ impl<'a> IndexingPipeline<'a> {
         info!("Starting indexing pipeline on {:?}", project_root);
 
         let files = Scanner::scan_directory(project_root, &self.cfg.indexer)?;
-
-        let mut graph = LeidenNative::new(self.cfg.graph.leiden_resolution);
-        let mut entity_ids: HashMap<String, i64> = HashMap::new();
+        
+        self.db.begin_transaction()?;
+        let mut processed_files = 0;
 
         for path in &files {
+            let path_str = path.to_string_lossy().to_string();
+            
+            let mtime = match fs::metadata(path) {
+                Ok(m) => m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH).duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64,
+                Err(_) => continue,
+            };
+            let size = fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
+            
+            if let Ok(Some((stored_mtime, stored_size, _))) = self.db.get_file_hash(&path_str) {
+                if stored_mtime == mtime && stored_size == size {
+                    continue; // Skip unchanged files
+                }
+            }
+
             let content = match fs::read_to_string(path) {
                 Ok(c) => c,
                 Err(_) => continue,
             };
 
-            let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().unwrap_or_default().to_str().unwrap_or("");
-
             let (entities, relations) = self.extract_code(ext, &content)?;
+
+            // Clean previous file data before re-indexing
+            if let Err(e) = self.db.delete_file_data(&path_str) {
+                warn!("Failed to clean old file data for {}: {}", path_str, e);
+            }
+            if let Err(e) = self.db.upsert_file_hash(&path_str, mtime, size, "") {
+                warn!("Failed to upsert file hash for {}: {}", path_str, e);
+            }
+
+            let mut entity_ids: HashMap<String, i64> = HashMap::new();
 
             // Insert entities
             for ent in &entities {
                 match self.db.insert_entity(&path_str, &ent.name, &ent.entity_type, &ent.qualified_name) {
                     Ok(id) => {
                         entity_ids.insert(ent.qualified_name.clone(), id);
-                        graph.add_edge(&path_str, &ent.name, 1.0);
                     }
                     Err(e) => warn!("Failed to insert entity {}: {}", ent.name, e),
                 }
@@ -74,14 +95,14 @@ impl<'a> IndexingPipeline<'a> {
                     if let Err(e) = self.db.insert_relation(sid, tid, &rel.relation_type, 1.0) {
                         warn!("Failed to insert relation {} -> {}: {}", rel.source, rel.target, e);
                     }
-                    graph.add_edge(&rel.source, &rel.target, 1.0);
                 }
             }
 
             // Semantic Chunk and embed
             let chunks = self.chunk_semantically(&content, &entities, self.cfg.indexer.chunk_max_lines);
-            for (chunk, line_start, line_end) in chunks {
-                match self.db.insert_chunk(&chunk, &path_str, Some(line_start), Some(line_end), None) {
+            for (chunk, line_start, line_end, associated_entity) in chunks {
+                let ent_id = associated_entity.and_then(|qn| entity_ids.get(&qn).copied());
+                match self.db.insert_chunk(&chunk, &path_str, Some(line_start), Some(line_end), ent_id) {
                     Ok(chunk_id) => {
                         match self.harrier.embed(&chunk, false, "", self.tokenizer) {
                             Ok(embedding) => {
@@ -95,10 +116,32 @@ impl<'a> IndexingPipeline<'a> {
                     Err(e) => warn!("Failed to insert chunk: {}", e),
                 }
             }
+            processed_files += 1;
         }
 
-        let _communities = graph.calculate()?;
-        info!("Indexing finished. Processed {} files.", files.len());
+        self.db.commit_transaction()?;
+        info!("Indexed {} new/modified files. Building Leiden graph...", processed_files);
+
+        // Reconstruct full graph from database (C4 applied: NO file paths, only entities)
+        let mut graph = LeidenNative::new(self.cfg.graph.leiden_resolution);
+        
+        let edges = self.db.get_all_relation_edges()?;
+        for (src, tgt, weight) in edges {
+            graph.add_edge(&src, &tgt, weight);
+        }
+
+        let communities = graph.calculate()?;
+        info!("Identified {} active entities with assigned communities.", communities.len());
+        
+        self.db.begin_transaction()?;
+        for (name, cid) in communities {
+            if let Err(e) = self.db.update_entity_community(&name, cid) {
+                warn!("Failed to update community for entity {}: {}", name, e);
+            }
+        }
+        self.db.commit_transaction()?;
+
+        info!("Indexing pipeline fully complete.");
         Ok(())
     }
 
@@ -173,7 +216,7 @@ impl<'a> IndexingPipeline<'a> {
         }
     }
 
-    fn chunk_semantically(&self, text: &str, entities: &[Entity], max_lines: usize) -> Vec<(String, i64, i64)> {
+    fn chunk_semantically(&self, text: &str, entities: &[Entity], max_lines: usize) -> Vec<(String, i64, i64, Option<String>)> {
         let mut chunks = Vec::new();
         let bytes = text.as_bytes();
         let mut covered_ranges = Vec::new();
@@ -185,9 +228,9 @@ impl<'a> IndexingPipeline<'a> {
                 let line_end = (line_start + chunk_text.lines().count() as i64).saturating_sub(1).max(line_start);
                 
                 if chunk_text.lines().count() <= max_lines {
-                    chunks.push((chunk_text.to_string(), line_start, line_end));
+                    chunks.push((chunk_text.to_string(), line_start, line_end, Some(ent.qualified_name.clone())));
                 } else {
-                    chunks.extend(self.chunk_by_lines_with_offset(chunk_text, max_lines, line_start));
+                    chunks.extend(self.chunk_by_lines_with_offset(chunk_text, max_lines, line_start, Some(ent.qualified_name.clone())));
                 }
                 covered_ranges.push((ent.start_byte, ent.end_byte));
             }
@@ -213,7 +256,7 @@ impl<'a> IndexingPipeline<'a> {
                 let span = &text[last_end..s];
                 if span.trim().len() > 10 {
                     let line_start = text[..last_end].lines().count() as i64 + 1;
-                    chunks.extend(self.chunk_by_lines_with_offset(span, max_lines, line_start));
+                    chunks.extend(self.chunk_by_lines_with_offset(span, max_lines, line_start, None));
                 }
             }
             last_end = last_end.max(e);
@@ -222,14 +265,14 @@ impl<'a> IndexingPipeline<'a> {
             let span = &text[last_end..];
             if span.trim().len() > 10 {
                 let line_start = text[..last_end].lines().count() as i64 + 1;
-                chunks.extend(self.chunk_by_lines_with_offset(span, max_lines, line_start));
+                chunks.extend(self.chunk_by_lines_with_offset(span, max_lines, line_start, None));
             }
         }
 
         chunks
     }
 
-    fn chunk_by_lines_with_offset(&self, text: &str, max_lines: usize, start_line_offset: i64) -> Vec<(String, i64, i64)> {
+    fn chunk_by_lines_with_offset(&self, text: &str, max_lines: usize, start_line_offset: i64, entity: Option<String>) -> Vec<(String, i64, i64, Option<String>)> {
         let lines: Vec<&str> = text.lines().collect();
         let mut chunks = vec![];
         let mut start = 0;
@@ -237,7 +280,7 @@ impl<'a> IndexingPipeline<'a> {
             let end = (start + max_lines).min(lines.len());
             let chunk = lines[start..end].join("\n");
             if !chunk.trim().is_empty() {
-                chunks.push((chunk, start_line_offset + start as i64, start_line_offset + end as i64 - 1));
+                chunks.push((chunk, start_line_offset + start as i64, start_line_offset + end as i64 - 1, entity.clone()));
             }
             start = end;
         }

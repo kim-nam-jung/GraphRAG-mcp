@@ -18,7 +18,7 @@ fn test_tokenizer_cl100k_base() -> Result<()> {
 
 #[test]
 fn test_harrier_fail_fast() {
-    let bad_model = HarrierModel::new("invalid_path/model.onnx");
+    let bad_model = HarrierModel::new("invalid_path/model.onnx", 640);
     assert!(
         bad_model.is_err(),
         "ONNX load failure must return Err, not a silent zero-vector mock"

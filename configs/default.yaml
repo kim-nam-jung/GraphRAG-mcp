@@ -2,9 +2,9 @@ server:
   transport: "stdio"
 
 indexer:
-  tier1: [go, python, typescript, javascript, csharp, java, rust, c, cpp]
-  tier2: [ruby, php, swift, kotlin, scala, lua, dart]
-  tier3: [bash, sql, html, css, yaml, json, toml, dockerfile, hcl, protobuf, markdown]
+  tier1: [go, py, ts, tsx, js, jsx, cs, java, rs, c, cpp, cc, h, hpp]
+  tier2: [rb, php, swift, kt, kts, scala, lua, dart]
+  tier3: [sh, bash, sql, html, css, yaml, yml, json, toml, dockerfile, hcl, proto, md]
   exclude_dirs: [vendor, node_modules, .git, dist, build, __pycache__, bin, obj]
   exclude_files: ["*_test.go", "*.test.*", "*.spec.*", "*.min.js", "*.min.css"]
   chunk_max_lines: 50

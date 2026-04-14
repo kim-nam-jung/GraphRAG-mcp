@@ -47,11 +47,6 @@ pub struct GraphConfig {
     pub min_community_size: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SearchConfig {
-    pub auto_reindex: bool,
-    pub reindex_cooldown_sec: u64,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -60,7 +55,6 @@ pub struct Config {
     pub embedding: EmbeddingConfig,
     pub storage: StorageConfig,
     pub graph: GraphConfig,
-    pub search: SearchConfig,
 }
 
 pub fn load_config(path: &str) -> Result<Config> {
@@ -103,9 +97,6 @@ storage:
 graph:
   leiden_resolution: 1.0
   min_community_size: 2
-search:
-  auto_reindex: true
-  reindex_cooldown_sec: 120
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.storage.db_path, ":memory:");

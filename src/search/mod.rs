@@ -24,7 +24,7 @@ impl<'a> SearchEngine<'a> {
     pub fn local_search(&self, query: &str, top_k: u32, graph_depth: u32) -> Result<String> {
         // [auto-reindex] Cooldown Check & Reindexing Hook
         if self.cfg.indexer.auto_reindex {
-            let mut last_idx = self.last_reindex.lock().unwrap();
+            let mut last_idx = self.last_reindex.lock().unwrap_or_else(|e| e.into_inner());
             let should_reindex = match *last_idx {
                 Some(time) => time.elapsed().as_secs() >= self.cfg.indexer.reindex_cooldown_sec,
                 None => true,

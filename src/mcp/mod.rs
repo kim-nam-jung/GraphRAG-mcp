@@ -6,7 +6,8 @@ use crate::embedding::{HarrierModel, Tokenizer};
 use crate::indexer::pipeline::IndexingPipeline;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
+use tokio::io::{self as tokio_io, AsyncBufReadExt};
 use std::path::Path;
 use tracing::{info, error};
 
@@ -37,20 +38,13 @@ impl<'a> McpServer<'a> {
     }
 
     pub async fn run_stdio(&self) -> Result<()> {
-        let stdin = io::stdin();
-        let mut handle = stdin.lock();
-        let mut buffer = String::new();
+        let stdin = tokio_io::stdin();
+        let mut reader = tokio_io::BufReader::new(stdin).lines();
 
         info!("MCP Server JSON-RPC loop started on stdio");
 
-        loop {
-            buffer.clear();
-            let bytes_read = handle.read_line(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
-            }
-
-            match serde_json::from_str::<RpcRequest>(&buffer) {
+        while let Ok(Some(line)) = reader.next_line().await {
+            match serde_json::from_str::<RpcRequest>(&line) {
                 Ok(request) => {
                     if let Some(res) = self.handle_request(request) {
                         let mut out = io::stdout().lock();
@@ -128,7 +122,8 @@ impl<'a> McpServer<'a> {
                             "properties": {
                                 "query": { "type": "string" },
                                 "max_entities": { "type": "integer", "default": 50 }
-                            }
+                            },
+                            "required": ["query"]
                         }
                     },
                     {

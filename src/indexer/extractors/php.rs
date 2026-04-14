@@ -20,7 +20,7 @@ impl PhpExtractor {
 impl Extractor for PhpExtractor {
     fn parse(&mut self, content: &str) -> Result<()> {
         self.content = content.to_string();
-        let tree = self.parser.parse(content, None).unwrap();
+        let tree = self.parser.parse(content, None).ok_or_else(|| anyhow::anyhow!("Failed to parse PHP"))?;
         let language = tree_sitter_php::language_php();
         let query = Query::new(&language, "
             (class_declaration name: (name) @class)

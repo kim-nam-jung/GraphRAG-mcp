@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
-use tracing::{info, warn};
+use tracing::info;
 use serde::Serialize;
 
 use std::sync::Once;
@@ -10,13 +10,14 @@ static INIT_SQLITE_VEC: Once = Once::new();
 fn init_sqlite_vec() {
     INIT_SQLITE_VEC.call_once(|| {
         unsafe {
+            // SAFETY: sqlite3_vec_init is safely transmuted to automatic extension loader as required by sqlite-vec C API.
             rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ())));
         }
     });
 }
 
 pub struct Database {
-    pub conn: Connection,
+    conn: Connection,
 }
 
 #[derive(Debug, Serialize)]
@@ -180,6 +181,18 @@ impl Database {
         Ok(())
     }
 
+    // --- Transactions Operations ---
+
+    pub fn begin_transaction(&self) -> Result<()> {
+        self.conn.execute_batch("BEGIN TRANSACTION;")?;
+        Ok(())
+    }
+
+    pub fn commit_transaction(&self) -> Result<()> {
+        self.conn.execute_batch("COMMIT;")?;
+        Ok(())
+    }
+
     // --- Entity Operations ---
 
     pub fn insert_entity(&self, file_path: &str, name: &str, entity_type: &str, qualified_name: &str) -> Result<i64> {
@@ -189,6 +202,14 @@ impl Database {
             |row| row.get(0),
         )?;
         Ok(id)
+    }
+
+    pub fn update_entity_community(&self, name: &str, community_id: u32) -> Result<()> {
+        self.conn.execute(
+            "UPDATE entities SET community_id = ?1 WHERE name = ?2",
+            params![community_id, name],
+        )?;
+        Ok(())
     }
 
     pub fn get_entity(&self, name: &str, file: &str) -> Result<Option<EntityDetail>> {
@@ -231,7 +252,7 @@ impl Database {
                 weight: row.get(2)?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     fn get_relations_outgoing(&self, entity_id: i64) -> Result<Vec<RelationRecord>> {
@@ -246,7 +267,7 @@ impl Database {
                 weight: row.get(2)?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     // --- Relation Operations ---
@@ -289,7 +310,7 @@ impl Database {
         let rows = stmt.query_map(params![bytes, top_k], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     // --- FTS Operations ---
@@ -331,8 +352,8 @@ impl Database {
             })
         })?;
 
-        let mut results: Vec<KeywordResult> = chunk_results.filter_map(|r| r.ok()).collect();
-        results.extend(entity_results.filter_map(|r| r.ok()));
+        let mut results: Vec<KeywordResult> = chunk_results.collect::<rusqlite::Result<Vec<_>>>()?;
+        results.extend(entity_results.collect::<rusqlite::Result<Vec<_>>>()?);
         results.truncate(top_k as usize);
         Ok(results)
     }
@@ -385,12 +406,12 @@ impl Database {
         if direction == "outgoing" || direction == "both" {
             let mut stmt = self.conn.prepare("SELECT target_id FROM relations WHERE source_id = ?1")?;
             let rows = stmt.query_map(params![entity_id], |row| row.get::<_, i64>(0))?;
-            ids.extend(rows.filter_map(|r| r.ok()));
+            ids.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
         }
         if direction == "incoming" || direction == "both" {
             let mut stmt = self.conn.prepare("SELECT source_id FROM relations WHERE target_id = ?1")?;
             let rows = stmt.query_map(params![entity_id], |row| row.get::<_, i64>(0))?;
-            ids.extend(rows.filter_map(|r| r.ok()));
+            ids.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
         }
         Ok(ids)
     }
@@ -442,10 +463,24 @@ impl Database {
     }
 
     pub fn delete_file_data(&self, file_path: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM vec_chunks WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?1)", params![file_path])?;
         self.conn.execute("DELETE FROM chunks WHERE file_path = ?1", params![file_path])?;
         self.conn.execute("DELETE FROM entities WHERE file_path = ?1", params![file_path])?;
         self.conn.execute("DELETE FROM file_hashes WHERE file_path = ?1", params![file_path])?;
         Ok(())
+    }
+
+    pub fn get_all_relation_edges(&self) -> Result<Vec<(String, String, f64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e1.name, e2.name, r.weight 
+             FROM relations r 
+             JOIN entities e1 ON r.source_id = e1.id 
+             JOIN entities e2 ON r.target_id = e2.id"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 }
 

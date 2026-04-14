@@ -34,7 +34,7 @@ impl Extractor for JsExtractor {
             (class_declaration name: (identifier) @class body: (class_body)? @body)
             (function_declaration name: (identifier) @func body: (statement_block)? @body)
             (method_definition name: (property_identifier) @method body: (statement_block)? @body)
-            (arrow_function) @arrow
+            (variable_declarator name: (identifier) @arrow value: (arrow_function body: (_) @body))
         ";
         let query = Query::new(&language, query_str)?;
         let mut cursor = QueryCursor::new();

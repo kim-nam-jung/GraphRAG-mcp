@@ -20,26 +20,68 @@ impl CSharpExtractor {
 impl Extractor for CSharpExtractor {
     fn parse(&mut self, content: &str) -> Result<()> {
         self.content = content.to_string();
-        let tree = self.parser.parse(content, None).unwrap();
+        let tree = self.parser.parse(content, None).ok_or_else(|| anyhow::anyhow!("Failed to parse C#"))?;
         let language = tree_sitter_c_sharp::language();
         let query = Query::new(&language, "
             (class_declaration name: (identifier) @class)
             (interface_declaration name: (identifier) @interface)
-            (method_declaration name: (identifier) @method)
+            (method_declaration name: (identifier) @method body: (block)? @body)
         ")?;
+        let call_query = Query::new(&language, "
+            (invocation_expression function: [ (identifier) @call (member_access_expression name: (identifier) @call) ])
+        ")?;
+
         let mut cursor = QueryCursor::new();
-        for m in cursor.matches(&query, tree.root_node(), content.as_bytes()) {
+        let bindings = cursor.matches(&query, tree.root_node(), content.as_bytes());
+        for m in bindings {
+            let mut ent_name = String::new();
+            let mut ent_type = "UNKNOWN";
+            let mut body_node = None;
+            let mut start_b = 0;
+            let mut end_b = 0;
+
             for c in m.captures {
                 let name = c.node.utf8_text(content.as_bytes())?.to_string();
                 let cname = query.capture_names()[c.index as usize];
-                let parent = c.node.parent().unwrap_or(c.node);
+                
+                if cname == "class" || cname == "interface" || cname == "method" {
+                    ent_name = name;
+                    ent_type = match cname {
+                        "class" => "CLASS",
+                        "interface" => "INTERFACE",
+                        _ => "METHOD",
+                    };
+                    let parent = c.node.parent().unwrap_or(c.node);
+                    start_b = parent.start_byte();
+                    end_b = parent.end_byte();
+                } else if cname == "body" {
+                    body_node = Some(c.node);
+                }
+            }
+
+            if !ent_name.is_empty() {
                 self.entities.push(Entity { 
-                    name: name.clone(), 
-                    entity_type: cname.to_uppercase(), 
-                    qualified_name: name,
-                    start_byte: parent.start_byte(),
-                    end_byte: parent.end_byte(),
+                    name: ent_name.clone(), 
+                    entity_type: ent_type.to_string(), 
+                    qualified_name: ent_name.clone(),
+                    start_byte: start_b,
+                    end_byte: end_b,
                 });
+
+                if let Some(body) = body_node {
+                    let mut call_cursor = QueryCursor::new();
+                    let call_bindings = call_cursor.matches(&call_query, body, content.as_bytes());
+                    for cm in call_bindings {
+                        for c in cm.captures {
+                            let target_call = c.node.utf8_text(content.as_bytes())?.to_string();
+                            self.relations.push(Relation {
+                                source: ent_name.clone(),
+                                target: target_call,
+                                relation_type: "CALLS".to_string(),
+                            });
+                        }
+                    }
+                }
             }
         }
         Ok(())

@@ -20,7 +20,7 @@ impl ScalaExtractor {
 impl Extractor for ScalaExtractor {
     fn parse(&mut self, content: &str) -> Result<()> {
         self.content = content.to_string();
-        let tree = self.parser.parse(content, None).unwrap();
+        let tree = self.parser.parse(content, None).ok_or_else(|| anyhow::anyhow!("Failed to parse Scala"))?;
         let language = tree_sitter_scala::language();
         let query = Query::new(&language, "
             (class_definition name: (identifier) @class)

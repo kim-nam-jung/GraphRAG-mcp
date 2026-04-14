@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use ignore::WalkBuilder;
+use glob::Pattern;
 use tracing::info;
 use crate::config::IndexerConfig;
 
@@ -49,8 +50,12 @@ impl Scanner {
 
                     // Check exclude file patterns
                     let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    let excluded = cfg.exclude_files.iter().any(|pattern| {
-                        matches_glob(pattern, file_name)
+                    let excluded = cfg.exclude_files.iter().any(|pattern_str| {
+                        if let Ok(pat) = Pattern::new(pattern_str) {
+                            pat.matches(file_name)
+                        } else {
+                            false
+                        }
                     });
                     if excluded {
                         continue;
@@ -69,12 +74,3 @@ impl Scanner {
     }
 }
 
-fn matches_glob(pattern: &str, name: &str) -> bool {
-    if pattern.starts_with('*') {
-        name.ends_with(&pattern[1..])
-    } else if pattern.ends_with('*') {
-        name.starts_with(&pattern[..pattern.len() - 1])
-    } else {
-        pattern == name
-    }
-}

@@ -11,7 +11,7 @@ pub struct HarrierModel {
 }
 
 impl HarrierModel {
-    pub fn new(model_path: &str) -> Result<Self> {
+    pub fn new(model_path: &str, dim: usize) -> Result<Self> {
         let mut builder = Session::builder().map_err(|e| anyhow::anyhow!("ORT error: {:?}", e))?;
         builder = builder.with_optimization_level(GraphOptimizationLevel::Level3).map_err(|e| anyhow::anyhow!("ORT error: {:?}", e))?;
         builder = builder.with_intra_threads(4).map_err(|e| anyhow::anyhow!("ORT error: {:?}", e))?;
@@ -30,7 +30,7 @@ impl HarrierModel {
         
         Ok(Self {
             session: std::sync::Mutex::new(session),
-            dim: 640,
+            dim,
         })
     }
 
