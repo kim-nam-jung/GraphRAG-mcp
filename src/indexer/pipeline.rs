@@ -17,10 +17,10 @@ use super::extractors::java::JavaExtractor;
 use super::extractors::cpp::CppExtractor;
 use super::extractors::c_sharp::CSharpExtractor;
 use super::extractors::ruby::RubyExtractor;
-// use super::extractors::php::PhpExtractor;
-// use super::extractors::swift::SwiftExtractor;
-// use super::extractors::kotlin::KotlinExtractor;
-// use super::extractors::scala::ScalaExtractor;
+use super::extractors::php::PhpExtractor;
+use super::extractors::swift::SwiftExtractor;
+use super::extractors::kotlin::KotlinExtractor;
+use super::extractors::scala::ScalaExtractor;
 use crate::graph::LeidenNative;
 use std::collections::HashMap;
 
@@ -192,26 +192,26 @@ impl<'a> IndexingPipeline<'a> {
                 parser.parse(content)?;
                 parser.extract()
             }
-            // "php" => {
-            //     let mut parser = PhpExtractor::new()?;
-            //     parser.parse(content)?;
-            //     parser.extract()
-            // }
-            // "swift" => {
-            //     let mut parser = SwiftExtractor::new()?;
-            //     parser.parse(content)?;
-            //     parser.extract()
-            // }
-            // "kt" | "kts" => {
-            //     let mut parser = KotlinExtractor::new()?;
-            //     parser.parse(content)?;
-            //     parser.extract()
-            // }
-            // "scala" | "sc" => {
-            //     let mut parser = ScalaExtractor::new()?;
-            //     parser.parse(content)?;
-            //     parser.extract()
-            // }
+            "php" => {
+                let mut parser = PhpExtractor::new()?;
+                parser.parse(content)?;
+                parser.extract()
+            }
+            "swift" => {
+                let mut parser = SwiftExtractor::new()?;
+                parser.parse(content)?;
+                parser.extract()
+            }
+            "kt" | "kts" => {
+                let mut parser = KotlinExtractor::new()?;
+                parser.parse(content)?;
+                parser.extract()
+            }
+            "scala" | "sc" => {
+                let mut parser = ScalaExtractor::new()?;
+                parser.parse(content)?;
+                parser.extract()
+            }
             _ => Ok((vec![], vec![])),
         }
     }

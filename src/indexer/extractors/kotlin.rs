@@ -23,8 +23,8 @@ impl Extractor for KotlinExtractor {
         let tree = self.parser.parse(content, None).ok_or_else(|| anyhow::anyhow!("Failed to parse Kotlin"))?;
         let language = tree_sitter_kotlin::language();
         let query = Query::new(&language, "
-            (class_declaration type_identifier: (simple_identifier) @class)
-            (function_declaration name: (simple_identifier) @func)
+            (class_declaration (type_identifier) @class)
+            (function_declaration (simple_identifier) @func)
         ")?;
         let mut cursor = QueryCursor::new();
         for m in cursor.matches(&query, tree.root_node(), content.as_bytes()) {
