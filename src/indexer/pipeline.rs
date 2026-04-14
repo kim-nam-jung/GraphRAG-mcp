@@ -104,7 +104,7 @@ impl<'a> IndexingPipeline<'a> {
                         entity_ids.insert(ent.qualified_name.clone(), id);
 
                         let semantic_text =
-                            format!("{} {} {}", ent.entity_type, ent.qualified_name, ent.name);
+                            format!("Entity: {} {} defined in file: {}", ent.entity_type, ent.name, path_str);
                         match self
                             .harrier
                             .embed(&semantic_text, false, "", self.tokenizer)

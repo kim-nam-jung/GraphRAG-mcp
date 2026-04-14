@@ -2,11 +2,11 @@ import sqlite3, json
 c = sqlite3.connect('/home/skawn1057/Development/GraphRAG-mcp/data/graph.db')
 
 nodes = []
-for r in c.execute('SELECT name, type, community_id FROM entities'):
-    nodes.append({'id': r[0], 'name': r[0], 'type_val': r[1], 'group': r[2] if r[2] else 1, 'val': 1})
+for r in c.execute("SELECT name || '@' || IFNULL(file_path, 'global') as id, max(name), max(type), max(community_id) FROM entities WHERE name NOT LIKE '%test%' GROUP BY name, file_path"):
+    nodes.append({'id': r[0], 'name': r[1], 'type_val': r[2], 'group': r[3] if r[3] else 1, 'val': 1})
 
 links = []
-for r in c.execute('SELECT e1.name, e2.name, r.type FROM relations r JOIN entities e1 ON r.source_id = e1.id JOIN entities e2 ON r.target_id = e2.id'):
+for r in c.execute("SELECT e1.name || '@' || IFNULL(e1.file_path, 'global'), e2.name || '@' || IFNULL(e2.file_path, 'global'), r.type FROM relations r JOIN entities e1 ON r.source_id = e1.id JOIN entities e2 ON r.target_id = e2.id WHERE e1.name NOT LIKE '%test%' AND e2.name NOT LIKE '%test%' GROUP BY e1.name, e1.file_path, e2.name, e2.file_path, r.type"):
     links.append({'source': r[0], 'target': r[1], 'type_val': r[2]})
 
 data = {'nodes': nodes, 'links': links}

@@ -620,16 +620,22 @@ impl Database {
         let mut nodes = Vec::new();
         let mut links = Vec::new();
 
-        let mut stmt = self.conn.prepare("SELECT name, type, community_id FROM entities")?;
-        let entity_iter = stmt.query_map([], |row| {
-            let name: String = row.get(0)?;
-            let type_val: String = row.get(1)?;
-            let community_id: Option<i32> = row.get(2)?;
+        let mut n_stmt = self.conn.prepare(
+            "SELECT name || '@' || IFNULL(file_path, 'global') as id, max(name) as display_name, max(type), max(community_id) 
+             FROM entities 
+             WHERE name NOT LIKE '%test%' 
+             GROUP BY name, file_path"
+        )?;
+        let entity_iter = n_stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let type_val: String = row.get(2)?;
+            let community_id: Option<i32> = row.get(3)?;
             Ok(EntityNode {
-                id: name.clone(),
+                id: id.clone(),
                 name,
                 type_val,
-                group: community_id.unwrap_or(1),
+                group: community_id.unwrap_or(1) as i32,
                 val: 1,
             })
         })?;
@@ -637,13 +643,15 @@ impl Database {
             if let Ok(n) = e { nodes.push(n); }
         }
 
-        let mut stmt = self.conn.prepare(
-            "SELECT e1.name, e2.name, r.type 
+        let mut r_stmt = self.conn.prepare(
+            "SELECT e1.name || '@' || IFNULL(e1.file_path, 'global'), e2.name || '@' || IFNULL(e2.file_path, 'global'), r.type 
              FROM relations r
-             JOIN entities e1 ON r.source_id = e1.id
-             JOIN entities e2 ON r.target_id = e2.id"
+             JOIN entities e1 ON r.source_id = e1.id 
+             JOIN entities e2 ON r.target_id = e2.id
+             WHERE e1.name NOT LIKE '%test%' AND e2.name NOT LIKE '%test%'
+             GROUP BY e1.name, e1.file_path, e2.name, e2.file_path, r.type"
         )?;
-        let rel_iter = stmt.query_map([], |row| {
+        let rel_iter = r_stmt.query_map([], |row| {
             let source: String = row.get(0)?;
             let target: String = row.get(1)?;
             let type_val: String = row.get(2)?;
