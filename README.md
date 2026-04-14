@@ -25,7 +25,7 @@ Modern AI coding assistants struggle with massive codebases. They lose context, 
 - **Hybrid Search Engine**:
   - **Local/Semantic**: Runs `Harrier` text-embedding models entirely locally via native ONNX runtime integrations. Embeddings are stored and searched using extreme-performance `sqlite-vec`.
   - **Global/Structural**: Utilizes optimized SQLite `FTS5` virtual mapping for high-speed textual queries and exact structural pinpointing.
-- **Standardized MCP Interface**: Integrates flawlessly into any agentic IDE environment (e.g., Cline, ValScribe) seamlessly exposing internal functions like `local_search`, `global_search`, and `get_graph_topology`.
+- **Standardized MCP Interface**: Integrates flawlessly into any agentic IDE environment (e.g., Cline) seamlessly exposing internal functions like `local_search`, `global_search`, and `get_graph_topology`.
 - **100% Test Covered Ecosystem**: Production hardened to prevent silent failures across parsing, graph clustering, vectorization, and database constraints.
 
 ## 🏗️ Architecture Stack
